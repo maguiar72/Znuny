@@ -85,6 +85,68 @@ else
     log "Database already initialized (${TABLE_COUNT} tables)."
 fi
 
+# --- 3b. Generate Kernel/Config.pm with literal values --------------------
+# mod_perl runs with "PerlOptions +SetupEnv", which replaces %ENV with the
+# per-request CGI environment. Reading container env vars from %ENV at request
+# time is therefore unreliable, so we bake the resolved values into Config.pm
+# at boot. This also guarantees the daemon and the web use identical settings.
+log "Generating Kernel/Config.pm."
+
+# Build the DSN, enabling TLS whenever it is not explicitly disabled
+# (Azure Database for MySQL enforces require_secure_transport=ON).
+DSN="DBI:mysql:database=${DB_NAME};host=${DB_HOST};port=${DB_PORT}"
+if [ "${ZNUNY_DB_SSL:-required}" != "disabled" ] || [ -n "${ZNUNY_DB_SSL_CA:-}" ]; then
+    DSN="${DSN};mysql_ssl=1"
+    if [ -n "${ZNUNY_DB_SSL_CA:-}" ]; then
+        DSN="${DSN};mysql_ssl_ca_file=${ZNUNY_DB_SSL_CA}"
+    fi
+fi
+
+# Escape values for a Perl single-quoted string ( \ and ' are special ).
+perl_quote() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g"; }
+
+HTTP_TYPE="${ZNUNY_HTTP_TYPE:-https}"
+FQDN_LINE=""
+if [ -n "${ZNUNY_FQDN:-}" ]; then
+    FQDN_LINE="    \$Self->{FQDN} = '$(perl_quote "${ZNUNY_FQDN}")';
+    \$Self->{HttpType} = '$(perl_quote "${HTTP_TYPE}")';
+    \$Self->{ScriptAlias} = 'znuny/';"
+fi
+
+cat > "${ZNUNY_HOME}/Kernel/Config.pm" <<EOF
+# Generated at container start by deploy/docker/entrypoint.sh - do not edit.
+package Kernel::Config;
+use strict;
+use warnings;
+use utf8;
+
+sub Load {
+    my \$Self = shift;
+
+    \$Self->{DatabaseHost} = '$(perl_quote "${DB_HOST}")';
+    \$Self->{Database}     = '$(perl_quote "${DB_NAME}")';
+    \$Self->{DatabaseUser} = '$(perl_quote "${DB_USER}")';
+    \$Self->{DatabasePw}   = '$(perl_quote "${DB_PASSWORD}")';
+    \$Self->{DatabaseDSN}  = '$(perl_quote "${DSN}")';
+
+    \$Self->{Home} = '${ZNUNY_HOME}';
+
+    \$Self->{LogModule}            = 'Kernel::System::Log::File';
+    \$Self->{'LogModule::LogFile'} = '${ZNUNY_HOME}/var/log/znuny.log';
+${FQDN_LINE}
+
+    # \$DIBI\$
+    return 1;
+}
+
+use Kernel::Config::Defaults;
+use parent qw(Kernel::Config::Defaults);
+
+1;
+EOF
+chown "${ZNUNY_USER}:${ZNUNY_WEB_GROUP:-www-data}" "${ZNUNY_HOME}/Kernel/Config.pm"
+chmod 660 "${ZNUNY_HOME}/Kernel/Config.pm"
+
 # --- 4. Config cache + permissions ----------------------------------------
 log "Rebuilding configuration cache."
 su -s /bin/bash "${ZNUNY_USER}" -c "cd ${ZNUNY_HOME} && perl bin/znuny.Console.pl Maint::Config::Rebuild" || \

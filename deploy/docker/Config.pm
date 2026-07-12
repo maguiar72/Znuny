@@ -27,11 +27,17 @@ sub Load {
 
     my $Port = $ENV{ZNUNY_DB_PORT} // '3306';
 
-    # MySQL / MariaDB DSN. Azure Database for MySQL Flexible Server requires
-    # TLS by default; point it at the bundled CA when a path is provided.
+    # MySQL / MariaDB DSN. Azure Database for MySQL Flexible Server enforces
+    # TLS (require_secure_transport=ON), so enable mysql_ssl unless it is
+    # explicitly disabled. Add CA verification when a CA path is provided.
+    #
+    # NOTE: at runtime the container entrypoint regenerates this file with
+    # literal values because mod_perl (+SetupEnv) replaces %ENV per request,
+    # making env lookups here unreliable. This env-based version is a fallback.
     my $DSN = "DBI:mysql:database=$Self->{Database};host=$Self->{DatabaseHost};port=$Port";
-    if ( $ENV{ZNUNY_DB_SSL_CA} ) {
-        $DSN .= ";mysql_ssl=1;mysql_ssl_ca_file=$ENV{ZNUNY_DB_SSL_CA}";
+    if ( ( $ENV{ZNUNY_DB_SSL} // 'required' ) ne 'disabled' || $ENV{ZNUNY_DB_SSL_CA} ) {
+        $DSN .= ";mysql_ssl=1";
+        $DSN .= ";mysql_ssl_ca_file=$ENV{ZNUNY_DB_SSL_CA}" if $ENV{ZNUNY_DB_SSL_CA};
     }
     $Self->{DatabaseDSN} = $DSN;
 
