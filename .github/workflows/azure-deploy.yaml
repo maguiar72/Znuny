@@ -1,0 +1,112 @@
+name: Deploy Znuny to Azure
+
+# Builds the Znuny container image and deploys it to Azure Container Apps.
+#
+# Required repository secrets (OIDC federated credentials recommended):
+#   AZURE_CLIENT_ID         - App registration / user-assigned identity client id
+#   AZURE_TENANT_ID         - Azure AD tenant id
+#   AZURE_SUBSCRIPTION_ID   - Target subscription id
+#   MYSQL_ADMIN_PASSWORD    - Strong password for the MySQL admin user
+#
+# The workflow is manual by default (workflow_dispatch). Enable the `push`
+# trigger below once you are comfortable with automatic deployments.
+
+on:
+  workflow_dispatch:
+    inputs:
+      resourceGroup:
+        description: Resource group name
+        required: true
+        default: znuny-rg
+      location:
+        description: Azure region
+        required: true
+        default: eastus
+      namePrefix:
+        description: Resource name prefix
+        required: true
+        default: znuny
+  # push:
+  #   branches: [ claude/znuny-azure-deployment-nbxlyj ]
+
+permissions:
+  id-token: write   # required for azure/login OIDC
+  contents: read
+
+concurrency:
+  group: znuny-azure-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      RESOURCE_GROUP: ${{ github.event.inputs.resourceGroup || 'znuny-rg' }}
+      LOCATION: ${{ github.event.inputs.location || 'eastus' }}
+      NAME_PREFIX: ${{ github.event.inputs.namePrefix || 'znuny' }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure resource group
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az group create \
+              --name "$RESOURCE_GROUP" \
+              --location "$LOCATION" \
+              --output none
+
+      - name: Deploy infrastructure (Bicep)
+        id: infra
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            outputs=$(az deployment group create \
+              --resource-group "$RESOURCE_GROUP" \
+              --template-file deploy/azure/main.bicep \
+              --parameters deploy/azure/main.parameters.example.json \
+              --parameters namePrefix="$NAME_PREFIX" \
+              --parameters mysqlAdminPassword="${{ secrets.MYSQL_ADMIN_PASSWORD }}" \
+              --query properties.outputs -o json)
+            echo "acrName=$(echo "$outputs" | jq -r .acrName.value)" >> "$GITHUB_OUTPUT"
+            echo "acrLoginServer=$(echo "$outputs" | jq -r .acrLoginServer.value)" >> "$GITHUB_OUTPUT"
+            echo "containerAppName=$(echo "$outputs" | jq -r .containerAppName.value)" >> "$GITHUB_OUTPUT"
+            echo "appUrl=$(echo "$outputs" | jq -r .appUrl.value)" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push image in ACR
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az acr build \
+              --registry "${{ steps.infra.outputs.acrName }}" \
+              --image "znuny:${IMAGE_TAG}" \
+              --image "znuny:latest" \
+              --file deploy/docker/Dockerfile \
+              .
+
+      - name: Update Container App image
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az containerapp update \
+              --name "${{ steps.infra.outputs.containerAppName }}" \
+              --resource-group "$RESOURCE_GROUP" \
+              --image "${{ steps.infra.outputs.acrLoginServer }}/znuny:${IMAGE_TAG}" \
+              --output none
+
+      - name: Deployment summary
+        run: |
+          echo "### Znuny deployed :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- URL: ${{ steps.infra.outputs.appUrl }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image tag: \`${IMAGE_TAG}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Default login: \`root@localhost\` / \`root\` (change immediately)" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,49 @@
+# Local test stack for the Znuny container image.
+# Mirrors the Azure runtime but uses a throwaway MariaDB container instead of
+# Azure Database for MySQL.
+#
+#   docker compose -f deploy/docker-compose.yml up --build
+#   open http://localhost:8080/  ->  root@localhost / root
+#
+services:
+  db:
+    image: mariadb:11
+    command:
+      - --max_allowed_packet=64M
+      - --innodb_log_file_size=256M
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpass
+      MARIADB_DATABASE: znuny
+      MARIADB_USER: znuny
+      MARIADB_PASSWORD: znunypass
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ZNUNY_DB_HOST: db
+      ZNUNY_DB_PORT: "3306"
+      ZNUNY_DB_NAME: znuny
+      ZNUNY_DB_USER: znuny
+      ZNUNY_DB_PASSWORD: znunypass
+      ZNUNY_DB_SSL: "disabled"     # local MariaDB has no TLS
+      ZNUNY_FQDN: localhost
+      ZNUNY_HTTP_TYPE: http
+    ports:
+      - "8080:8080"
+
+volumes:
+  db-data:

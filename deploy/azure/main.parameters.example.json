@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "namePrefix": {
+      "value": "znuny"
+    },
+    "mysqlAdminUser": {
+      "value": "znunyadmin"
+    },
+    "znunyDbName": {
+      "value": "znuny"
+    },
+    "mysqlSkuName": {
+      "value": "Standard_B1ms"
+    },
+    "mysqlTier": {
+      "value": "Burstable"
+    },
+    "mysqlStorageGb": {
+      "value": 32
+    },
+    "containerCpu": {
+      "value": "1.0"
+    },
+    "containerMemory": {
+      "value": "2Gi"
+    },
+    "minReplicas": {
+      "value": 1
+    },
+    "maxReplicas": {
+      "value": 3
+    }
+  }
+}

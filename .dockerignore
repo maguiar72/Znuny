@@ -1,0 +1,14 @@
+# Build context exclusions for the Znuny container image.
+.git
+.github
+**/.gitkeep
+*.md
+!deploy/**/*.md
+development
+doc
+node_modules
+var/tmp/*
+var/log/*
+var/httpd/htdocs/js/js-cache/*
+var/httpd/htdocs/skins/*/*/css-cache/*
+Kernel/Config.pm
