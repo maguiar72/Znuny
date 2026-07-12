@@ -83,6 +83,27 @@ az deployment group show -g znuny-rg -n main --query properties.outputs.appUrl.v
 The CI workflow does exactly these steps: deploy Bicep → `az acr build` → update
 the Container App image.
 
+### Turnkey script (recommended for a first manual deploy)
+
+`deploy/azure/provision.sh` wraps all of the above. Run it from a machine that
+is authenticated to the target subscription (e.g. **SERPRO-CLOUD**):
+
+```bash
+export AZURE_SUBSCRIPTION_ID="<subscription-id>"   # SERPRO-CLOUD subscription
+export MYSQL_ADMIN_PASSWORD='<strong-password>'
+# defaults: RESOURCE_GROUP=znuny-rg  LOCATION=brazilsouth  NAME_PREFIX=znuny
+./deploy/azure/provision.sh
+```
+
+Notes for SERPRO-CLOUD / Brazil:
+
+- The default region is **`brazilsouth`** (Azure public cloud). Override with
+  `LOCATION=...` if a different region is required.
+- For a sovereign/other Azure endpoint, run `az cloud set --name <cloud>`
+  before the script.
+- The subscription id is passed as an environment variable — it is not stored
+  in the repository.
+
 ## 4. First login
 
 1. Open the app URL. Default admin: `root@localhost` / `root`.

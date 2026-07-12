@@ -21,7 +21,7 @@ on:
       location:
         description: Azure region
         required: true
-        default: eastus
+        default: brazilsouth
       namePrefix:
         description: Resource name prefix
         required: true
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RESOURCE_GROUP: ${{ github.event.inputs.resourceGroup || 'znuny-rg' }}
-      LOCATION: ${{ github.event.inputs.location || 'eastus' }}
+      LOCATION: ${{ github.event.inputs.location || 'brazilsouth' }}
       NAME_PREFIX: ${{ github.event.inputs.namePrefix || 'znuny' }}
       IMAGE_TAG: ${{ github.sha }}
     steps:
