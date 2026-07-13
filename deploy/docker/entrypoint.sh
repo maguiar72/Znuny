@@ -94,12 +94,16 @@ log "Generating Kernel/Config.pm."
 
 # Build the DSN, enabling TLS whenever it is not explicitly disabled
 # (Azure Database for MySQL enforces require_secure_transport=ON).
+#
+# IMPORTANT: Debian's DBD::mysql is linked against the MariaDB connector, which
+# does NOT support "mysql_ssl=1" (it raises "Enforcing SSL encryption is not
+# supported"). With this connector, TLS is enabled by supplying a CA file via
+# "mysql_ssl_ca_file". The system CA bundle already contains the DigiCert roots
+# that Azure Database for MySQL chains to, so we default to it.
 DSN="DBI:mysql:database=${DB_NAME};host=${DB_HOST};port=${DB_PORT}"
-if [ "${ZNUNY_DB_SSL:-required}" != "disabled" ] || [ -n "${ZNUNY_DB_SSL_CA:-}" ]; then
-    DSN="${DSN};mysql_ssl=1"
-    if [ -n "${ZNUNY_DB_SSL_CA:-}" ]; then
-        DSN="${DSN};mysql_ssl_ca_file=${ZNUNY_DB_SSL_CA}"
-    fi
+if [ "${ZNUNY_DB_SSL:-required}" != "disabled" ]; then
+    SSL_CA="${ZNUNY_DB_SSL_CA:-/etc/ssl/certs/ca-certificates.crt}"
+    DSN="${DSN};mysql_ssl_ca_file=${SSL_CA}"
 fi
 
 # Escape values for a Perl single-quoted string ( \ and ' are special ).

@@ -28,16 +28,19 @@ sub Load {
     my $Port = $ENV{ZNUNY_DB_PORT} // '3306';
 
     # MySQL / MariaDB DSN. Azure Database for MySQL Flexible Server enforces
-    # TLS (require_secure_transport=ON), so enable mysql_ssl unless it is
-    # explicitly disabled. Add CA verification when a CA path is provided.
+    # TLS (require_secure_transport=ON). Debian's DBD::mysql is linked against
+    # the MariaDB connector, which does NOT support "mysql_ssl=1" (that raises
+    # "Enforcing SSL encryption is not supported"). TLS is instead enabled by
+    # providing a CA file; the system CA bundle already contains the DigiCert
+    # roots Azure chains to.
     #
     # NOTE: at runtime the container entrypoint regenerates this file with
     # literal values because mod_perl (+SetupEnv) replaces %ENV per request,
     # making env lookups here unreliable. This env-based version is a fallback.
     my $DSN = "DBI:mysql:database=$Self->{Database};host=$Self->{DatabaseHost};port=$Port";
-    if ( ( $ENV{ZNUNY_DB_SSL} // 'required' ) ne 'disabled' || $ENV{ZNUNY_DB_SSL_CA} ) {
-        $DSN .= ";mysql_ssl=1";
-        $DSN .= ";mysql_ssl_ca_file=$ENV{ZNUNY_DB_SSL_CA}" if $ENV{ZNUNY_DB_SSL_CA};
+    if ( ( $ENV{ZNUNY_DB_SSL} // 'required' ) ne 'disabled' ) {
+        my $CA = $ENV{ZNUNY_DB_SSL_CA} || '/etc/ssl/certs/ca-certificates.crt';
+        $DSN .= ";mysql_ssl_ca_file=$CA";
     }
     $Self->{DatabaseDSN} = $DSN;
 

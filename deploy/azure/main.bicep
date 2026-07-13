@@ -48,6 +48,9 @@ param mysqlTier string = 'Burstable'
 @description('MySQL storage size in GB.')
 param mysqlStorageGb int = 32
 
+@description('Require TLS for MySQL connections. The Debian DBD::mysql driver (linked against the MariaDB connector) cannot enforce TLS, so this defaults to OFF: the server still accepts TLS when the client negotiates it, but also allows plaintext. Set to true once connections run over a private VNet or a TLS-capable driver.')
+param mysqlRequireSecureTransport bool = false
+
 // --- Container App sizing -----------------------------------------------------
 @description('vCPU allocated to the Znuny container.')
 param containerCpu string = '1.0'
@@ -137,6 +140,17 @@ resource mysqlMaxPacket 'Microsoft.DBforMySQL/flexibleServers/configurations@202
     source: 'user-override'
   }
   dependsOn: [ mysqlAllowAzure ]
+}
+
+// Control TLS enforcement. See mysqlRequireSecureTransport for the rationale.
+resource mysqlSecureTransport 'Microsoft.DBforMySQL/flexibleServers/configurations@2023-12-30' = {
+  parent: mysql
+  name: 'require_secure_transport'
+  properties: {
+    value: mysqlRequireSecureTransport ? 'ON' : 'OFF'
+    source: 'user-override'
+  }
+  dependsOn: [ mysqlMaxPacket ]
 }
 
 resource znunyDb 'Microsoft.DBforMySQL/flexibleServers/databases@2023-12-30' = {
