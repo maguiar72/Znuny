@@ -64,6 +64,9 @@ param minReplicas int = 1
 @description('Maximum number of replicas.')
 param maxReplicas int = 3
 
+@description('Custom public domain for the app (e.g. znuny.trf3.jus.br). Leave empty to use the default *.azurecontainerapps.io hostname. When set, an Azure-managed TLS certificate is issued and Znuny advertises this hostname. The DNS records (CNAME + asuid TXT) must already exist before deploying with this set.')
+param customDomain string = ''
+
 // -----------------------------------------------------------------------------
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var acrName = toLower('${namePrefix}acr${uniqueSuffix}')
@@ -177,6 +180,34 @@ resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
+// --- Managed TLS certificate for the custom domain ---------------------------
+// Azure-issued, auto-renewed. Requires the custom domain's CNAME + asuid TXT
+// records to already resolve so domain control validation can succeed.
+resource managedCert 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' = if (!empty(customDomain)) {
+  parent: env
+  name: replace(customDomain, '.', '-')
+  location: location
+  properties: {
+    subjectName: customDomain
+    domainControlValidation: 'CNAME'
+  }
+}
+
+// Base container environment variables; ZNUNY_FQDN is appended when a custom
+// domain is configured so Znuny builds correct absolute links.
+var baseEnv = [
+  { name: 'ZNUNY_DB_HOST', value: mysql.properties.fullyQualifiedDomainName }
+  { name: 'ZNUNY_DB_PORT', value: '3306' }
+  { name: 'ZNUNY_DB_NAME', value: znunyDbName }
+  { name: 'ZNUNY_DB_USER', value: mysqlAdminUser }
+  { name: 'ZNUNY_DB_PASSWORD', secretRef: 'db-password' }
+  { name: 'ZNUNY_DB_SSL', value: 'required' }
+  { name: 'ZNUNY_HTTP_TYPE', value: 'https' }
+]
+var appEnv = empty(customDomain) ? baseEnv : concat(baseEnv, [
+  { name: 'ZNUNY_FQDN', value: customDomain }
+])
+
 // --- Container App ------------------------------------------------------------
 resource app 'Microsoft.App/containerApps@2024-03-01' = {
   name: appName
@@ -192,6 +223,13 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         allowInsecure: false
         traffic: [
           { latestRevision: true, weight: 100 }
+        ]
+        customDomains: empty(customDomain) ? [] : [
+          {
+            name: customDomain
+            bindingType: 'SniEnabled'
+            certificateId: managedCert.id
+          }
         ]
       }
       registries: [
@@ -221,15 +259,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json(containerCpu)
             memory: containerMemory
           }
-          env: [
-            { name: 'ZNUNY_DB_HOST', value: mysql.properties.fullyQualifiedDomainName }
-            { name: 'ZNUNY_DB_PORT', value: '3306' }
-            { name: 'ZNUNY_DB_NAME', value: znunyDbName }
-            { name: 'ZNUNY_DB_USER', value: mysqlAdminUser }
-            { name: 'ZNUNY_DB_PASSWORD', secretRef: 'db-password' }
-            { name: 'ZNUNY_DB_SSL', value: 'required' }
-            { name: 'ZNUNY_HTTP_TYPE', value: 'https' }
-          ]
+          env: appEnv
           probes: [
             {
               type: 'Liveness'
@@ -262,3 +292,7 @@ output acrName string = acr.name
 output containerAppName string = app.name
 output mysqlFqdn string = mysql.properties.fullyQualifiedDomainName
 output appUrl string = 'https://${app.properties.configuration.ingress.fqdn}'
+output defaultFqdn string = app.properties.configuration.ingress.fqdn
+// Value for the "asuid.<subdomain>" TXT record used to validate the custom domain.
+output customDomainVerificationId string = app.properties.customDomainVerificationId
+output customDomainUrl string = empty(customDomain) ? '' : 'https://${customDomain}'

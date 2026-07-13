@@ -52,12 +52,15 @@ outputs=$(az deployment group create \
     --parameters "${REPO_ROOT}/deploy/azure/main.parameters.example.json" \
     --parameters namePrefix="${NAME_PREFIX}" \
     --parameters mysqlAdminPassword="${MYSQL_ADMIN_PASSWORD}" \
+    --parameters customDomain="${CUSTOM_DOMAIN:-}" \
     --query properties.outputs -o json)
 
 ACR_NAME=$(echo "${outputs}"    | jq -r .acrName.value)
 ACR_SERVER=$(echo "${outputs}"  | jq -r .acrLoginServer.value)
 APP_NAME=$(echo "${outputs}"    | jq -r .containerAppName.value)
 APP_URL=$(echo "${outputs}"     | jq -r .appUrl.value)
+DEFAULT_FQDN=$(echo "${outputs}" | jq -r .defaultFqdn.value)
+DOMAIN_VERIFY_ID=$(echo "${outputs}" | jq -r .customDomainVerificationId.value)
 
 # --- Image build (runs inside ACR, no local Docker needed) -------------------
 echo "==> Building image ${ACR_SERVER}/znuny:${IMAGE_TAG} in ACR..."
@@ -79,6 +82,18 @@ az containerapp update \
 echo ""
 echo "============================================================"
 echo " Znuny provisioned successfully."
-echo "   URL   : ${APP_URL}"
+if [ -n "${CUSTOM_DOMAIN:-}" ]; then
+    echo "   URL   : https://${CUSTOM_DOMAIN}"
+else
+    echo "   URL   : ${APP_URL}"
+fi
 echo "   Login : root@localhost / root   (change immediately)"
+echo ""
+echo " Custom domain setup (only if using CUSTOM_DOMAIN):"
+echo "   Default FQDN (CNAME target) : ${DEFAULT_FQDN}"
+echo "   Domain verification id      : ${DOMAIN_VERIFY_ID}"
+echo "   Create these DNS records at your DNS provider, THEN re-run"
+echo "   this script with CUSTOM_DOMAIN set:"
+echo "     CNAME  <subdomain>         -> ${DEFAULT_FQDN}"
+echo "     TXT    asuid.<subdomain>   -> ${DOMAIN_VERIFY_ID}"
 echo "============================================================"
