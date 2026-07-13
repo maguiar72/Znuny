@@ -180,18 +180,12 @@ resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
-// --- Managed TLS certificate for the custom domain ---------------------------
-// Azure-issued, auto-renewed. Requires the custom domain's CNAME + asuid TXT
-// records to already resolve so domain control validation can succeed.
-resource managedCert 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' = if (!empty(customDomain)) {
-  parent: env
-  name: replace(customDomain, '.', '-')
-  location: location
-  properties: {
-    subjectName: customDomain
-    domainControlValidation: 'CNAME'
-  }
-}
+// NOTE: The custom hostname binding and its Azure-managed certificate are NOT
+// created here. Container Apps requires a specific ordering (add hostname, then
+// issue the managed certificate, then enable the SNI binding) that cannot be
+// expressed in a single Bicep pass. provision.sh performs those steps via the
+// CLI after deployment. This template only advertises the hostname to Znuny
+// (ZNUNY_FQDN) so it builds correct absolute links.
 
 // Base container environment variables; ZNUNY_FQDN is appended when a custom
 // domain is configured so Znuny builds correct absolute links.
@@ -223,13 +217,6 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         allowInsecure: false
         traffic: [
           { latestRevision: true, weight: 100 }
-        ]
-        customDomains: empty(customDomain) ? [] : [
-          {
-            name: customDomain
-            bindingType: 'SniEnabled'
-            certificateId: managedCert.id
-          }
         ]
       }
       registries: [

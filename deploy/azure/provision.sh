@@ -79,6 +79,32 @@ az containerapp update \
     --image "${ACR_SERVER}/znuny:${IMAGE_TAG}" \
     --output none
 
+# --- Custom domain + Azure-managed TLS certificate ---------------------------
+# Container Apps requires: (1) add the hostname (ownership check via the
+# asuid.<sub> TXT record), then (2) bind it, which issues and attaches a managed
+# certificate (routing check via the CNAME record). Both DNS records must
+# already resolve. This is idempotent, so re-running preserves the binding even
+# though the Bicep deployment above does not manage it.
+if [ -n "${CUSTOM_DOMAIN:-}" ]; then
+    ENV_NAME="${NAME_PREFIX}-env"
+    ALREADY_BOUND=$(az containerapp hostname list \
+        --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" \
+        --query "[?name=='${CUSTOM_DOMAIN}' && bindingType=='SniEnabled'] | length(@)" -o tsv 2>/dev/null || echo 0)
+    if [ "${ALREADY_BOUND:-0}" = "0" ]; then
+        echo "==> Adding custom hostname ${CUSTOM_DOMAIN} (requires asuid TXT record)..."
+        az containerapp hostname add \
+            --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" \
+            --hostname "${CUSTOM_DOMAIN}" --output none 2>/dev/null || true
+        echo "==> Binding hostname and issuing managed certificate (requires CNAME record; may take a few minutes)..."
+        az containerapp hostname bind \
+            --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" \
+            --hostname "${CUSTOM_DOMAIN}" --environment "${ENV_NAME}" \
+            --validation-method CNAME --output none
+    else
+        echo "==> Custom hostname ${CUSTOM_DOMAIN} already bound; skipping."
+    fi
+fi
+
 echo ""
 echo "============================================================"
 echo " Znuny provisioned successfully."
