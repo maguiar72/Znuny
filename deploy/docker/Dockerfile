@@ -34,6 +34,9 @@ RUN set -eux; \
         tzdata \
         libdbi-perl \
         libdbd-mysql-perl \
+        libdata-uuid-perl \
+        libhash-merge-perl \
+        libical-parser-perl \
         libdatetime-perl \
         libdatetime-timezone-perl \
         libtemplate-perl \
