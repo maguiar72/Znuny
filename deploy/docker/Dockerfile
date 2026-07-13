@@ -85,7 +85,7 @@ RUN set -eux; \
 # Listen on 8080 (Container Apps default target port, no root needed) and load
 # the Znuny mod_perl configuration shipped in the repository.
 RUN set -eux; \
-    a2enmod perl headers deflate filter; \
+    a2enmod perl headers deflate filter rewrite setenvif; \
     a2dismod mpm_event || true; \
     a2enmod mpm_prefork; \
     sed -i 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf; \
@@ -93,8 +93,20 @@ RUN set -eux; \
     a2enconf servername; \
     ln -sf ${ZNUNY_HOME}/scripts/apache2-httpd.include.conf /etc/apache2/conf-available/znuny.conf; \
     a2enconf znuny; \
-    printf '<VirtualHost *:8080>\n    DocumentRoot %s/var/httpd/htdocs\n    RedirectMatch ^/$ /znuny/index.pl\n    ErrorLog /proc/self/fd/2\n    CustomLog /proc/self/fd/1 combined\n</VirtualHost>\n' "${ZNUNY_HOME}" \
-        > /etc/apache2/sites-available/znuny-vhost.conf; \
+    { \
+        echo '<VirtualHost *:8080>'; \
+        echo "    DocumentRoot ${ZNUNY_HOME}/var/httpd/htdocs"; \
+        echo '    # The Container Apps ingress terminates TLS and forwards over http:8080.'; \
+        echo '    # Trust its X-Forwarded-Proto so the app treats the request as HTTPS.'; \
+        echo '    SetEnvIf X-Forwarded-Proto "https" HTTPS=on'; \
+        echo '    # Serve the login page at "/" via an INTERNAL rewrite (no external'; \
+        echo '    # redirect, which would otherwise leak the internal http://host:8080).'; \
+        echo '    RewriteEngine On'; \
+        echo '    RewriteRule ^/?$ /znuny/index.pl [PT,L]'; \
+        echo '    ErrorLog /proc/self/fd/2'; \
+        echo '    CustomLog /proc/self/fd/1 combined'; \
+        echo '</VirtualHost>'; \
+    } > /etc/apache2/sites-available/znuny-vhost.conf; \
     a2ensite znuny-vhost; \
     a2dissite 000-default || true; \
     # Send the global error log to the container's stderr as well.

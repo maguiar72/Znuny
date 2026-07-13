@@ -106,6 +106,15 @@ fi
 perl_quote() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g"; }
 
 HTTP_TYPE="${ZNUNY_HTTP_TYPE:-https}"
+
+# Derive the public FQDN from the values Container Apps injects, unless it was
+# provided explicitly (e.g. a custom domain). This lets Znuny build correct
+# absolute links without hardcoding the ingress hostname.
+if [ -z "${ZNUNY_FQDN:-}" ] && [ -n "${CONTAINER_APP_NAME:-}" ] && [ -n "${CONTAINER_APP_ENV_DNS_SUFFIX:-}" ]; then
+    ZNUNY_FQDN="${CONTAINER_APP_NAME}.${CONTAINER_APP_ENV_DNS_SUFFIX}"
+    log "Derived public FQDN: ${ZNUNY_FQDN}"
+fi
+
 FQDN_LINE=""
 if [ -n "${ZNUNY_FQDN:-}" ]; then
     FQDN_LINE="    \$Self->{FQDN} = '$(perl_quote "${ZNUNY_FQDN}")';
